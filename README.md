@@ -202,8 +202,8 @@
 ## 快速开始
 
 ```bash
-git clone https://github.com/yongsoft/fieldrunners.git
-cd fieldrunners
+git clone https://github.com/yongsoft/FieldRunners.git
+cd FieldRunners
 ```
 
 然后**双击 `index.html`** 即可。
@@ -229,7 +229,7 @@ cd fieldrunners
 | **性能** | 30 座炮塔 + 54 名敌人：**3.9 ms/帧**（热态） |
 
 ```
-fieldrunners/
+FieldRunners/
 ├── index.html          入口
 ├── css/style.css       HUD / 菜单 / 布局
 └── js/
