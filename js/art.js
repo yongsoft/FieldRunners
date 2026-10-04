@@ -2011,6 +2011,43 @@ const Art = (() => {
   const TOP_OX = -TPX, TOP_OY = -TPY + BASE_CY_TOP;
 
   function drawTower(x, tw, t) {
+    /* 设计稿裁出来的 PNG：直接把整张画到格子中心，炮头用 ctx.rotate(rot) 转。
+       保持落地缩放、影子、recoil 这些体验细节跟原版同。 */
+    const useDesign = typeof Sprites !== 'undefined' && Sprites.enabled && Sprites.loaded;
+
+    if (useDesign) {
+      x.save();
+      x.translate(tw.x, tw.y);
+      if (tw.spawnT < 1) {
+        const s = 0.5 + 0.5 * (1 - Math.pow(1 - tw.spawnT, 3)) + Math.sin(tw.spawnT * Math.PI) * 0.12;
+        x.scale(s, s);
+      }
+      const K = GROUND_K;
+      const rot = tw.aim;
+      const recoil = tw.recoil ? tw.recoil * 5 : 0;
+
+      /* 设计稿底座里自带阴影，先画一个轻地面阴影统一方向感（不旋转，跟着塔走） */
+      x.save();
+      x.globalAlpha = 0.28;
+      x.fillStyle = '#1a1410';
+      ell(x, 0, 4, 24, 9);
+      x.fill();
+      x.restore();
+
+      /* 旋转前的整张（含底座 + 炮头）作为底盘 */
+      Sprites.drawTowerBase(x, tw.key, tw.level, 0, 0);
+
+      /* 炮头用与底座完全相同的图，但只对炮头部分做旋转。
+         设计稿炮头通常是「从中心偏左上伸出」，所以旋转中心用 (0, 0) ——即格子中心——
+         即可。recoil 用同方向偏移。 */
+      x.save();
+      x.translate(-Math.cos(rot) * recoil, -Math.sin(rot) * recoil * K);
+      Sprites.drawTowerTop(x, tw.key, tw.level, 0, 0, rot);
+      x.restore();
+      x.restore();
+      return;
+    }
+
     const sp = getTowerSprite(tw.key, tw.level);
     const K = GROUND_K;
     x.save();
@@ -2686,6 +2723,21 @@ const Art = (() => {
   // 逐车尺寸补偿已经搬进 buildVehicle 的 ESCALE，这里不再另存一份
 
   function drawEnemy(x, e, t) {
+    /* 设计稿裁图：直接贴，按朝向旋转。 */
+    const useDesign = typeof Sprites !== 'undefined' && Sprites.enabled && Sprites.loaded;
+    if (useDesign) {
+      x.save();
+      x.translate(e.x, e.y);
+      if (e.air) {
+        x.globalAlpha = 0.24;
+        x.fillStyle = '#000'; ell(x, 8, 22, 16, 6.5); x.fill();
+        x.globalAlpha = 1;
+        x.translate(0, -20 - Math.sin(t * 3 + e.seed) * 2.5);
+      }
+      Sprites.drawEnemy(x, e.art, 0, 0, e.angle);
+      x.restore();
+      return;
+    }
     const frame = Math.floor(e.anim * ENEMY_FRAMES) % ENEMY_FRAMES;
     const sp = getEnemyProj(e.art, frame, e.angle);
     x.save();
@@ -2733,6 +2785,18 @@ const Art = (() => {
   }
 
   function towerIcon(key, size) {
+    /* 设计稿：直接把 lvl1 裁图缩到 size×size，瞄准角写 0。 */
+    if (typeof Sprites !== 'undefined' && Sprites.loaded) {
+      const img = Sprites.img(`${key}_t_lvl1`);
+      if (img && img.complete) {
+        const c = document.createElement('canvas'); c.width = size; c.height = size;
+        const x = c.getContext('2d');
+        const s = Math.min(size / img.naturalWidth, size / img.naturalHeight);
+        const w = img.naturalWidth * s, h = img.naturalHeight * s;
+        x.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+        return c;
+      }
+    }
     const { c, x } = cv(size, size);
     x.translate(size / 2, size / 2);
     x.scale(size / 96, size / 96);
