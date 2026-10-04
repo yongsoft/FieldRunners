@@ -2011,9 +2011,13 @@ const Art = (() => {
   const TOP_OX = -TPX, TOP_OY = -TPY + BASE_CY_TOP;
 
   function drawTower(x, tw, t) {
-    /* 设计稿裁出来的 PNG：直接把整张画到格子中心，炮头用 ctx.rotate(rot) 转。
-       保持落地缩放、影子、recoil 这些体验细节跟原版同。 */
-    const useDesign = typeof Sprites !== 'undefined' && Sprites.enabled && Sprites.loaded;
+    /* 设计稿裁图是 3/4 透视单帧，整体 ctx.rotate 会倒过来。
+       等裁出 base + top 分离的两张 sprite 后再启用；目前 fallback 到程序化伪 3D。
+       美术约定见下方 AI 切换说明：
+         - 设计稿 PNG：必须 split 成 base/top，分别走不同变换
+         - 程序化路径：用真 3/4 投影（见 getTopProj），底座不转、炮头按朝向分桶
+   */
+    const useDesign = false;
 
     if (useDesign) {
       x.save();
@@ -2723,8 +2727,9 @@ const Art = (() => {
   // 逐车尺寸补偿已经搬进 buildVehicle 的 ESCALE，这里不再另存一份
 
   function drawEnemy(x, e, t) {
-    /* 设计稿裁图：直接贴，按朝向旋转。 */
-    const useDesign = typeof Sprites !== 'undefined' && Sprites.enabled && Sprites.loaded;
+    /* 设计稿裁图是 3/4 透视单帧，整张旋转会倒。
+       等把车辆拆成 hull + 旋转零件再启用；目前 fallback 到程序化伪 3D。 */
+    const useDesign = false;
     if (useDesign) {
       x.save();
       x.translate(e.x, e.y);
@@ -2785,8 +2790,9 @@ const Art = (() => {
   }
 
   function towerIcon(key, size) {
-    /* 设计稿：直接把 lvl1 裁图缩到 size×size，瞄准角写 0。 */
-    if (typeof Sprites !== 'undefined' && Sprites.loaded) {
+    /* 设计稿：直接把 lvl1 裁图缩到 size×size，瞄准角写 0。
+       静态图标不参与旋转，可以安全用设计稿。 */
+    if (typeof Sprites !== 'undefined' && Sprites.enabled && Sprites.loaded) {
       const img = Sprites.img(`${key}_t_lvl1`);
       if (img && img.complete) {
         const c = document.createElement('canvas'); c.width = size; c.height = size;
