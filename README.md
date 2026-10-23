@@ -4,11 +4,12 @@
 
 **自由摆放炮塔，让敌人绕出一条死亡长廊。**
 
-一个零依赖、纯 Canvas 2D 的塔防游戏，致敬 Subatomic Studios 的经典之作 *Fieldrunners*。
-所有美术与音效都在运行时程序化生成 —— 没有一张图片资源，没有一个音频文件。
+一个塔防游戏的完整复刻，致敬 Subatomic Studios 的经典之作 *Fieldrunners*。
+地形、地图与全部 2D 美术在运行时程序化生成；炮塔与敌人则是**真 3D 模型**，
+由 Three.js 实时渲染在同一个伪 3D 投影里。
 
-![零依赖](https://img.shields.io/badge/dependencies-0-brightgreen)
-![Canvas 2D](https://img.shields.io/badge/render-Canvas%202D-2f6f8f)
+![无构建步骤](https://img.shields.io/badge/build-none-brightgreen)
+![Canvas 2D + WebGL](https://img.shields.io/badge/render-Canvas%202D%20%2B%20WebGL-2f6f8f)
 ![纯前端](https://img.shields.io/badge/backend-none-ff8c1a)
 ![致敬复刻](https://img.shields.io/badge/tribute-Fieldrunners-d9a520)
 
@@ -34,8 +35,25 @@
 - **蛇形长廊** —— 用塔墙把敌人的行进距离拉长十倍，是通关的唯一正解
 
 <div align="center">
-<img src="docs/shot-battle.png" width="840" alt="战斗画面">
+<img src="docs/shot-battle.png" width="840" alt="战斗画面（2D 美术）">
 </div>
+
+---
+
+## 3D 单位
+
+炮塔与敌人的模型是**程序化建模**的（图元 + 倒角 + PBR 材质），不是画出来的贴图。
+每座塔、每款车都有独立配色 —— 是从设计稿逐张取色得到的，不是一套色刷所有。
+
+<div align="center">
+<img src="docs/game3d.png" width="840" alt="6 座炮塔（全 MK-III）+ 8 个敌军的 3D 实拍">
+</div>
+
+关键在于**投影是同一套数学**：游戏的伪 3D 是「地面压 0.46、高度乘 0.90」，
+而这恰好等价于一台俯角 27.386° 的正交相机。所以 3D 单位不需要任何手工对位常数，
+落点和原生 2D 美术在像素级重合（实测中心偏差 1px、底边偏差 2px）。
+
+想让单位退回 2D 绘制？在网址后面加 `?gl=0`。浏览器没有 WebGL 时也会自动降级。
 
 ---
 
@@ -204,11 +222,16 @@
 ```bash
 git clone https://github.com/yongsoft/FieldRunners.git
 cd FieldRunners
+python3 -m http.server 8080      # 任何静态服务器都行
 ```
 
-然后**双击 `index.html`** 即可。
+打开 <http://127.0.0.1:8080>。
 
-没有构建步骤、没有 `npm install`、没有本地服务器 —— 直接 `file://` 打开就能玩。
+没有构建步骤、没有 `npm install` —— Three.js 已经放在 `js/vendor/` 里，直接引用。
+
+> **为什么要起服务器？** 3D 单位是通过 ES module + import map 加载的，
+> 而浏览器在 `file://` 协议下会以 CORS 为由拒绝加载模块脚本。
+> 直接双击 `index.html` 仍然能玩，但会自动降级成 **2D 单位渲染**（`js/main.js` 入口）。
 
 > 想改数值？几乎所有平衡参数都集中在 [`js/config.js`](js/config.js) 一个文件里：
 > 炮塔、敌人、地图、波次成长曲线、难度修正。
@@ -219,27 +242,43 @@ cd FieldRunners
 
 | | |
 |:--|:--|
-| **渲染** | 单张 1280×720 逻辑画布，CSS `transform: scale()` 自适应；固定逻辑分辨率，与屏幕尺寸解耦 |
-| **美术** | **100% 运行时程序化绘制** —— 没有一个图片文件。厚涂卡通 + 粗黑描边，炮塔与敌人带离屏 sprite 缓存 |
-| **投影** | 真 3/4 斜视角（`u` 前 / `v` 右 / `w` 上），带相机侧深度排序与遮挡规则 |
+| **渲染** | 逻辑分辨率固定 1280×720，CSS `transform: scale()` 自适应；三张画布叠在一起 |
+| **分层** | `#game` 地形（Canvas 2D）→ `#gl3d` 单位（WebGL）→ `#gameTop` 血条 / 弹道 / 飘字（Canvas 2D）。WebGL 与 2D 无法在同张画布上交错绘制，只能分层 |
+| **3D 单位** | Three.js 实时渲染。程序化建模（倒角盒 / 圆柱 / 圆环 / 螺栓圈）+ PBR 材质 + 程序化环境贴图，12 个单位共 13 套独立配色 |
+| **投影对齐** | 写死一台俯角 27.386° 的正交相机（= `asin(0.46)`），于是世界 `(x, 高度, y/0.46)` 投影回来正好等于游戏的画布坐标，无需手调偏移 |
+| **合批** | 一座塔有 100+ mesh，20 座就是 2000+ draw call。按材质合并几何后每座塔只剩 **16 个 draw call**（6 塔 331 → 96） |
+| **降级链** | WebGL 不可用 → 2D 单位；单个模型建模失败 / 坐标 NaN → 该单位单独用 2D 补画；`file://` → 整体 2D 入口。任何一环失败都不影响游戏可玩 |
+| **自检** | 每 8 帧在某个单位脚下 `readPixels` 采样一次，连续 25 次全透明就判定 WebGL「假装在跑」（上下文创建成功但不出像素），自动回退 |
+| **2D 美术** | 地形 / 基地 / 河流 / 高地全部运行时程序化绘制，多层有机轮廓 + 离屏缓存 |
 | **寻路** | **每个出口一张流场**：16px 细网格（80×36）上的 8 向 BFS，切比雪夫距离 + 视线拉绳平滑 |
 | **建塔校验** | 建造 → 重建阻挡 → 重建流场 → 全路径合法性检查；不合法则**整体回滚** |
 | **音效** | WebAudio 程序化合成，按帧节流，防止多塔齐射爆音 |
-| **依赖** | 无。纯原生 JavaScript + Canvas 2D + WebAudio |
-| **性能** | 30 座炮塔 + 54 名敌人：**3.9 ms/帧**（热态） |
+| **依赖** | 仅 Three.js（已 vendor 进仓库）。无构建、无包管理器 |
 
 ```
 FieldRunners/
-├── index.html          入口
-├── css/style.css       HUD / 菜单 / 布局
-└── js/
-    ├── config.js       炮塔 · 敌人 · 地图 · 波次 · 难度（调平衡看这里）
-    ├── art.js          全部程序化美术 + 3/4 斜视角投影引擎
-    ├── audio.js        WebAudio 程序化音效
-    ├── engine.js       游戏循环 · 流场寻路 · 战斗结算
-    ├── ui.js           HUD · 菜单 · 炮塔面板
-    └── main.js         启动 · 画布自适应 · 主循环
+├── index.html            入口（三张画布 + import map）
+├── css/style.css         HUD / 菜单 / 布局
+├── js/
+│   ├── config.js         炮塔 · 敌人 · 地图 · 波次 · 难度（调平衡看这里）
+│   ├── art.js            全部 2D 程序化美术 + 3/4 斜视角投影引擎
+│   ├── audio.js          WebAudio 程序化音效
+│   ├── engine.js         游戏循环 · 流场寻路 · 战斗结算
+│   ├── ui.js             HUD · 菜单 · 炮塔面板
+│   ├── main.js           2D 入口（file:// 与无 WebGL 时的兜底）
+│   ├── main3d.js         3D 入口：三层主循环
+│   ├── gl3d.js           WebGL 桥接：投影 / 合批 / 同步 / 健康自检
+│   ├── parts3d.js        3D 图元库 + 逐单位材质工厂
+│   ├── towers3d.js       6 座炮塔 × 3 级
+│   ├── enemies3d.js      7 种敌人
+│   ├── materials3d.js    程序化环境贴图
+│   └── vendor/           three.module.js 等
+├── tools/bake/           Blender 离线烘焙管线（炮塔 / 敌人的贴图方案，见其 README）
+└── docs/                 截图与演示
 ```
+
+> `tools/bake/` 是早期「预渲染贴图」方案的产物：用 Blender 建 3D 模型再烘成 48 个朝向的
+> 位图图集。当前主力渲染已改为实时 3D，这套管线只在 2D 降级路径里仍被用到。
 
 ---
 

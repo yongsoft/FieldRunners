@@ -1001,10 +1001,16 @@ class Game {
   /* ============================================================
      渲染
      ============================================================ */
-  render(x, t) {
+  /* pass 0 = 地形层（画在 #game 上）
+     pass 1 = 覆盖层（画在 #gameTop 上：血条/光束/弹道/飘字）
+     pass 2 / 不传 = 全画在 2D（旧的单画布模式，留作回退）
+     3D 单位夹在 0 和 1 之间由 WebGL 叠层渲染。 */
+  render(x, t, pass) {
+    const P = pass === undefined ? 2 : pass;
     x.save();
     x.translate(this.shakeX, this.shakeY);
 
+    if (P !== 1) {
     x.drawImage(this.groundWithDecor, 0, 0);
 
     // 出生点标记
@@ -1024,14 +1030,20 @@ class Game {
     // 选中炮塔范围
     if (this.selected) this.drawRange(x, this.selected);
 
-    // 炮塔与敌人统一按 y 排序，保证前后遮挡关系正确
-    const ents = [];
-    for (const tw of this.towers) ents.push({ y: tw.y, o: tw, k: 0 });
-    for (const e of this.enemies) ents.push({ y: e.y, o: e, k: 1 });
-    ents.sort((a, b) => a.y - b.y);
-    for (const it of ents) {
-      if (it.k === 0) Art.drawTower(x, it.o, t); else Art.drawEnemy(x, it.o, t);
+    // 单画布模式才在这里画 2D 单位
+    if (P === 2) {
+      const ents = [];
+      for (const tw of this.towers) ents.push({ y: tw.y, o: tw, k: 0 });
+      for (const e of this.enemies) ents.push({ y: e.y, o: e, k: 1 });
+      ents.sort((a, b) => a.y - b.y);
+      for (const it of ents) {
+        if (it.k === 0) Art.drawTower(x, it.o, t); else Art.drawEnemy(x, it.o, t);
+      }
     }
+
+    if (P === 0) { x.restore(); return; }
+    }  // end !P===1
+
     const es = this.enemies;
 
     // 血条
@@ -1329,7 +1341,7 @@ class Game {
       x.globalAlpha = ok ? 0.85 : 0.4;
       x.drawImage(sp.base, cx - 48, cy - 48);
       /* 3/4 炮塔顶：朝向固定一个好看的角度，偏移由 art.js 给出 */
-      x.drawImage(Art.getTopProj(key, 0, -0.4), cx + Art.TOP_OX, cy + Art.TOP_OY);
+      x.drawImage(Art.getTopProj(key, 0, -0.4), cx + Art.TOP_OX, cy + Art.TOP_OY, Art.TOP_DW, Art.TOP_DW);
     }
     x.restore();
   }

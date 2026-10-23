@@ -1558,14 +1558,28 @@ const Art = (() => {
      ============================================================ */
   const TPW = 192, TPX = 84, TPY = 124;   // 离屏画布 / 原点位置
   const TT = 1.38;                        // 炮体整体放大（基座不动）
+  /* TSS：炮塔精灵的内容超采样倍率。
+     实测炮体在 192 画布里只占 62x56 px —— 画布 94% 是空的，
+     而屏幕上这 62px 还要被 Retina 再放大一倍，糊成一片。
+     把内容按 2 倍画进同一张画布（最大件 78x59 -> 156x118，仍在 192 内），
+     绘制时再缩回一半：显示尺寸完全不变，但像素从 62 变成 124。
+     内存零增长，因为画布尺寸没变。 */
+  const TSS = 2;
 
   function buildTop(key, lv, rot) {
     const { c, x } = cv(TPW, TPW);
     x.translate(TPX, TPY);
-    x.scale(TT, TT);
+    x.scale(TT * TSS, TT * TSS);
     x.lineJoin = 'round'; x.lineCap = 'round';
     const ca = Math.cos(rot), sa = Math.sin(rot);
     const INK = '#141a10';
+    /* TELW：炮塔描边系数。设计稿（gatling lv1）实测「近黑像素」占 24%，
+       而原样每块装甲的每个面 + 每条接缝都描 1.45~1.7px，实测占到 49% ——
+       车体暗部和描边糊成一整块，这是「一团黑、看不出细节」的主因。
+       只调系数、不改绘制逻辑：所有 ink() 调用统一乘它。 */
+    const TELW = 0.56;
+    const inkBase = ink;
+    const inkT = (cx, w, col) => inkBase(cx, w * TELW, col);
 
     /* ---------- 3/4 基元 ---------- */
     /* UOFF：炮体整体沿 u 后移。设计稿里炮体是「坐在台座后半」的，
@@ -1583,7 +1597,7 @@ const Art = (() => {
       }
       x.closePath();
       if (fill) { x.fillStyle = fill; x.fill(); }
-      ink(x, lw === undefined ? 1.7 : lw, inkCol || INK);
+      inkT(x, lw === undefined ? 1.7 : lw, inkCol || INK);
     }
     /* ---- 三个局部平面上的「圆角矩形」----
        直接在投影后的平面里画圆角矩形，轮廓才是设计稿那种圆润的装甲块，
@@ -1599,7 +1613,7 @@ const Art = (() => {
       else x.rect(u0, v0, u1 - u0, v1 - v0);
       const g = vgrad(x, v0, v1, stops);   // 必须在这个平面的局部坐标里建
       x.restore();
-      x.fillStyle = g; x.fill(); if (lw) ink(x, lw);
+      x.fillStyle = g; x.fill(); if (lw) inkT(x, lw);
     }
     /* 前后面：局部 (v,w)，法线沿 u。局部 y=w，w 大的两个角在 3D 里是「上」 */
     function fillU(uu, v0, v1, w0, w1, r, stops, lw) {
@@ -1610,7 +1624,7 @@ const Art = (() => {
       else x.rect(v0, w0, v1 - v0, w1 - w0);
       const g = vgrad(x, w0, w1, stops);   // 必须在这个平面的局部坐标里建
       x.restore();
-      x.fillStyle = g; x.fill(); if (lw) ink(x, lw);
+      x.fillStyle = g; x.fill(); if (lw) inkT(x, lw);
     }
     /* 左右面：局部 (u,w)，法线沿 v */
     function fillV(vv, u0, u1, w0, w1, r, stops, lw) {
@@ -1621,16 +1635,21 @@ const Art = (() => {
       else x.rect(u0, w0, u1 - u0, w1 - w0);
       const g = vgrad(x, w0, w1, stops);   // 必须在这个平面的局部坐标里建
       x.restore();
-      x.fillStyle = g; x.fill(); if (lw) ink(x, lw);
+      x.fillStyle = g; x.fill(); if (lw) inkT(x, lw);
     }
-    /* 侧面明暗：下缘压暗、上缘提亮，中间一道高光 —— 体积感全靠它 */
+    /* 侧面明暗：下缘压暗、上缘提亮，中间一道高光 —— 体积感全靠它。
+       数值是对着设计稿的调色板分布校准的（gatling lv1）：
+         设计稿 = 近黑描边 24% + 暗橄榄 43% + 中间调 37% + 卡其高光 15%
+         改之前 = 近黑 53%（车体暗部和描边糊成一块）+ 高光只有 6%
+       所以暗端不能压到 -0.36（那会和描边同色），高光带要更宽更亮。 */
     function bodyGrad(c) {
-      return [[0, shade(c, -0.36)], [0.22, shade(c, -0.05)],
-              [0.60, shade(c, 0.24)], [1, shade(c, 0.04)]];
+      return [[0, shade(c, -0.17)], [0.18, shade(c, -0.02)],
+              [0.46, shade(c, 0.15)], [0.74, shade(c, 0.36)], [1, shade(c, 0.08)]];
     }
-    /* 顶面：靠后亮、靠前暗（受天光） */
+    /* 顶面：靠后亮、靠前暗（受天光），中间补一段最亮的高光带 */
     function topGrad(c) {
-      return [[0, shade(c, 0.26)], [0.48, shade(c, 0.10)], [1, shade(c, -0.16)]];
+      return [[0, shade(c, 0.36)], [0.36, shade(c, 0.18)],
+              [0.72, shade(c, -0.03)], [1, shade(c, -0.19)]];
     }
     /* 圆角长方体：两个朝向相机的侧面 + 顶面；顶面再压一块内嵌装甲板 + 板缝 */
     function box(u0, u1, v0, v1, w0, w1, cTop, cU, cV, lw, plain, rad) {
@@ -1652,7 +1671,7 @@ const Art = (() => {
       const m = (u0 + u1) / 2;
       const q1 = pt(m - 0.7, v0 + iv * 1.3, w1), q2 = pt(m + 0.7, v1 - iv * 1.3, w1);
       x.beginPath(); x.moveTo(q1[0], q1[1]); x.lineTo(q2[0], q2[1]);
-      ink(x, o * 0.5, 'rgba(20,26,16,0.40)');
+      inkT(x, o * 0.5, 'rgba(20,26,16,0.40)');
     }
 
     /* 任意走向的圆管（a/b 是局部端点），带粗黑描边 */
@@ -1683,7 +1702,7 @@ const Art = (() => {
       x.beginPath(); x.arc(0, 0, r, 0, Math.PI * 2);
       x.restore();
       if (fill) { x.fillStyle = fill; x.fill(); }
-      ink(x, lw === undefined ? 1.5 : lw, inkCol || INK);
+      inkT(x, lw === undefined ? 1.5 : lw, inkCol || INK);
     }
     const MU = [-sa, ca * GROUND_K, 0, -HZ];   // 法线沿 u
     const MV = [ca, sa * GROUND_K, 0, -HZ];    // 法线沿 v
@@ -1696,7 +1715,7 @@ const Art = (() => {
       const p = pt(u, v, w);
       ell(x, p[0], p[1], r, r);
       x.fillStyle = rgrad(x, p[0] - r * 0.28, p[1] - r * 0.32, r * 0.10, r * 1.04, stops);
-      x.fill(); ink(x, 1.5, '#10222c');
+      x.fill(); inkT(x, 1.5, '#10222c');
     }
 
     /* ---------- 配色（对齐设计稿：亮军绿机体 / 钢灰枪管 / 红色点缀） ---------- */
@@ -1708,7 +1727,7 @@ const Art = (() => {
     /* ================= 1. 机枪塔 → 六管加特林 ================= */
     if (key === 'gatling') {
       UOFF = -5.2;
-      const nB = [4, 6, 6][lv], ext = [7.5, 9.5, 11][lv], rad = [4.2, 5.2, 5.9][lv];
+      const nB = [4, 6, 8][lv], ext = [7.5, 9.5, 11.5][lv], rad = [4.2, 5.4, 6.9][lv];
       const TOPW = 29, WY = 19.5;
       /* 方形底座：炮体先坐在一块方块上，设计稿里炮体不是直接落在台面上 */
       box(-13, 6, -11.5, 11.5, 0, 8.5, OL.l, OL.m, OL.d, 1.8, false, 4.0);
@@ -1797,7 +1816,7 @@ const Art = (() => {
     /* ================= 3. 导弹塔 → 双联装发射箱 ================= */
     if (key === 'missile') {
       UOFF = -3.6;
-      const rows = [2, 3, 3][lv], PIT = 0.30;      // 每箱几排弹 / 上仰角
+      const rows = [2, 3, 4][lv], PIT = 0.30;      // 每箱几排弹 / 上仰角
       /* 底座 + 摇架 */
       box(-12, 5, -10, 10, 0, 8.6, OL.l, OL.m, OL.d, 1.7, false, 3.6);
       box(-8, 3, -3.6, 3.6, 8.6, 13.0, OL.l, OL.m, OL.d, 1.5, false, 2.0);
@@ -1832,12 +1851,24 @@ const Art = (() => {
       face([[-6, -11.4, 13.6], [4, -11.4, 16.6], [4, -11.4, 23.6], [-6, -11.4, 20.6]], ST.d, 1.7);
       capV(-1.0, -11.4, 18.6, 2.0, BR.m, 1.0);
       capV(-1.0, -11.5, 18.6, 0.9, RD.m, 0.8);
+      /* 3 级专属：侧裙装甲 + 前向观瞄镜 —— 升级必须在轮廓上就能看出来，
+         否则 2 级和 3 级摆在一起分不出谁是谁 */
+      if (lv >= 2) {
+        face([[2, -12.6, 9.0], [13, -12.6, 9.0], [13, -12.6, 15.2], [2, -12.6, 15.2]], ST.m, 1.7);
+        face([[2, -13.2, 15.2], [13, -13.2, 15.2], [13, -13.2, 16.6], [2, -13.2, 16.6]], BR.m, 1.4);
+        const so = pt(19.5, 0, 24.4), sd = pt(23.5, 0, 24.4);
+        x.save(); x.translate(so[0], so[1]);
+        x.rotate(Math.atan2(sd[1] - so[1], sd[0] - so[0]));
+        ell(x, 0, 0, 3.4, 2.2); x.fillStyle = '#2b3b46'; x.fill(); inkT(x, 1.2);
+        ell(x, 0, 0, 2.0, 1.2); x.fillStyle = '#7fd4e8'; x.fill();
+        x.restore();
+      }
       /* 雷达小碟（2 级起，挂在右侧） */
       if (lv >= 1) {
         const o = pt(-1, 11.4, 20.0), d1 = pt(2, 11.4, 20);
         x.save(); x.translate(o[0], o[1]); x.rotate(Math.atan2(d1[1] - o[1], d1[0] - o[0]));
-        ell(x, 0, 0, 8.4, 3.2); x.fillStyle = ST.l; x.fill(); ink(x, 1.5);
-        ell(x, 0, 0, 6.6, 2.4); x.fillStyle = ST.m; x.fill(); ink(x, 1.0);
+        ell(x, 0, 0, 8.4, 3.2); x.fillStyle = ST.l; x.fill(); inkT(x, 1.5);
+        ell(x, 0, 0, 6.6, 2.4); x.fillStyle = ST.m; x.fill(); inkT(x, 1.0);
         ell(x, 0, 0, 2.0, 1.9); x.fillStyle = ST.x; x.fill();
         x.restore();
       }
@@ -1922,12 +1953,12 @@ const Art = (() => {
       const RW = R, RH = R * 0.58;
       x.save(); x.translate(o[0], o[1]); x.rotate(ang);
       /* 背面：往下错开做出「碗」的厚度 */
-      ell(x, 0, RH * 0.20, RW, RH); x.fillStyle = ST.d; x.fill(); ink(x, 2.0);
+      ell(x, 0, RH * 0.20, RW, RH); x.fillStyle = ST.d; x.fill(); inkT(x, 2.0);
       /* 凹面：径向渐变（中间亮、边缘暗）—— 用同心环描边会看成漩涡 */
       ell(x, 0, 0, RW, RH);
       x.fillStyle = rgrad(x, 0, 0, RW * 0.05, RW,
         [[0, '#f4f8f9'], [0.32, '#cbd4d9'], [0.70, '#949ea6'], [1, '#5e676f']]);
-      x.fill(); ink(x, 2.0);
+      x.fill(); inkT(x, 2.0);
       /* 三圈很淡的同心环，做出「一圈圈金属」的质感 */
       for (let i = 1; i <= 3; i++) {
         const k = 1 - i * 0.21;
@@ -1935,7 +1966,7 @@ const Art = (() => {
         x.strokeStyle = 'rgba(255,255,255,0.20)'; x.lineWidth = 1.3; x.stroke();
       }
       /* 中心毂 */
-      ell(x, 0, 0, RW * 0.17, RH * 0.17); x.fillStyle = ST.x; x.fill(); ink(x, 1.2);
+      ell(x, 0, 0, RW * 0.17, RH * 0.17); x.fillStyle = ST.x; x.fill(); inkT(x, 1.2);
       x.restore();
       /* 中心馈源 */
       tube([8, 0, 30.0], [8 + R * 0.50, 0, 30.0], 1.6, ST.d, 1.0);
@@ -1993,6 +2024,47 @@ const Art = (() => {
     return [Math.cos(ang), Math.sin(ang) * K];
   }
 
+  /* ============================================================
+     炮塔精灵的后处理：手绘质感 + 左上暖高光
+     对设计稿实测（gatling lv1）：色数 1440~3500、边缘密度 58~82%。
+     纯几何渲染只有 800 色 / 37% —— 差的是「表面被画过」的痕迹。
+     这里补两样，都是参考稿里确实存在的东西：
+       1. 磨损颗粒：少量像素整体提亮/压暗，模拟掉漆与积灰
+       2. 左上暖光：参考稿的卡其高光来自左上方，用 source-atop 的
+          线性渐变一层，比逐个面做高光便宜得多，也不会破坏描边
+     ============================================================ */
+  function weatherTop(c, key, lv, b) {
+    const x2 = c.getContext('2d');
+    const W = c.width, H = c.height;
+    const im = x2.getImageData(0, 0, W, H);
+    const d = im.data;
+    let seed = b * 131 + lv * 17 + key.length * 7 + 3;
+    const R = mulberry32(seed);
+    /* 颗粒：只在实心像素上做，幅度小（±9%），密度 6% */
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3] < 60) continue;
+      const r = R();
+      if (r > 0.06) continue;
+      const k = r < 0.028 ? 0.91 : 1.09;
+      d[i] = clamp(d[i] * k, 0, 255);
+      d[i + 1] = clamp(d[i + 1] * k, 0, 255);
+      d[i + 2] = clamp(d[i + 2] * k, 0, 255);
+    }
+    x2.putImageData(im, 0, 0);
+
+    /* 左上暖光：只在已有像素上叠加，不会糊到轮廓外面 */
+    x2.save();
+    x2.globalCompositeOperation = 'source-atop';
+    const g = x2.createLinearGradient(W * 0.15, 0, W * 0.75, H);
+    g.addColorStop(0, 'rgba(255,244,205,0.30)');
+    g.addColorStop(0.38, 'rgba(255,244,205,0.06)');
+    g.addColorStop(1, 'rgba(120,96,60,0.10)');
+    x2.fillStyle = g;
+    x2.fillRect(0, 0, W, H);
+    x2.restore();
+    return c;
+  }
+
   /* 炮塔顶：按朝向分桶缓存。桶内是一次完整的 3/4 重绘，
      运行时每座塔每帧只剩 1 次 drawImage。 */
   const TOP_BUCKETS = 48;                // 7.5° 一档
@@ -2003,12 +2075,16 @@ const Art = (() => {
     const id = key + lv + '|' + b;
     if (topProjCache[id]) return topProjCache[id];
     if (topProjCount > 400) { for (const kk in topProjCache) delete topProjCache[kk]; topProjCount = 0; }
-    const c = buildTop(key, lv, b / TOP_BUCKETS * Math.PI * 2);
+    const c = weatherTop(buildTop(key, lv, b / TOP_BUCKETS * Math.PI * 2),
+                         key, lv, b);
     topProjCache[id] = c; topProjCount++;
     return c;
   }
-  /* 把局部原点（基座台面中心）画到 (0, BASE_CY_TOP) 所需的偏移 */
-  const TOP_OX = -TPX, TOP_OY = -TPY + BASE_CY_TOP;
+  /* 把局部原点（基座台面中心）画到 (0, BASE_CY_TOP) 所需的偏移。
+      TSS=2 时精灵是 2 倍密度的，所以偏移和目标尺寸都要除 TSS：
+      原点落在 dx + TPX/TSS = 0、dy + TPY/TSS = BASE_CY_TOP。 */
+  const TOP_OX = -TPX / TSS, TOP_OY = -TPY / TSS + BASE_CY_TOP;
+  const TOP_DW = TPW / TSS;
 
   function drawTower(x, tw, t) {
     /* 设计稿裁图是 3/4 透视单帧，整体 ctx.rotate 会倒过来。
@@ -2052,6 +2128,60 @@ const Art = (() => {
       return;
     }
 
+    /* ---------- 烘焙贴图路径（PoC：目前只有机枪塔 1 级） ----------
+       Blender 正交相机（仰角 27.386° = asin(GROUND_K)）烘出的 48 朝向图集。
+       和程序化路径共用同一套投影，所以基座/炮体的落点完全一致；
+       差别只在「形体是建模出来的」而不是「图元拼出来的」。
+       ?bake=0 可整体关掉，回退到下面的程序化分支。 */
+    if (typeof Bake !== 'undefined' && Bake.enabled && Bake.has(tw.key, tw.level)) {
+      const M = Bake.meta;
+      const K = GROUND_K;
+      const rot = tw.aim;
+      const recoil = tw.recoil ? tw.recoil * 5 : 0;
+      /* 两张烘焙画布的原点都是「模型原点」，烘焙时相机就瞄在原点，
+         所以这里只要把各自的落点对齐到程序化版本的位置：
+           groundY   基座地面 → BASE_CY_TOP + BASE_RIM_H
+           platformY 台面中心 → BASE_CY_TOP                                 */
+      const topY = M.platformY;
+
+      x.save();
+      x.translate(tw.x, tw.y);
+      if (tw.spawnT < 1) {
+        const s = 0.5 + 0.5 * (1 - Math.pow(1 - tw.spawnT, 3)) + Math.sin(tw.spawnT * Math.PI) * 0.12;
+        x.scale(s, s);
+      }
+
+      /* 落地阴影（和 towerBase 的同一条） */
+      x.save();
+      x.globalAlpha = 0.34;
+      x.fillStyle = '#100c06';
+      ell(x, 0, M.groundY + 2.6, BASE_RX + 2.4, BASE_RY + 3.2);
+      x.fill();
+      x.restore();
+
+      /* 基座（不旋转） */
+      x.drawImage(Bake.base, -M.baseOriginX, -M.baseOriginY + M.groundY);
+
+      /* 炮体投在台面上的影子 —— 跟着朝向转，塔「立」在基座上的感觉全靠它 */
+      const sh = projVec(rot, K);
+      x.save();
+      x.globalAlpha = 0.22;
+      x.fillStyle = '#0b0e06';
+      ell(x, sh[0] * 6.0, topY + sh[1] * 6.0, 19.0, 19.0 * K);
+      x.fill();
+      x.restore();
+
+      /* 炮体：按朝向取桶，直接从图集里贴一格 */
+      const rc = Bake.cellRect(Bake.bucket(rot, M.headings));
+      x.save();
+      x.translate(-Math.cos(rot) * recoil, -Math.sin(rot) * recoil * K);
+      x.drawImage(Bake.top, rc[0], rc[1], M.cellW, M.cellH,
+                  -M.originX, -M.originY + topY, M.cellW, M.cellH);
+      x.restore();
+      x.restore();
+      return;
+    }
+
     const sp = getTowerSprite(tw.key, tw.level);
     const K = GROUND_K;
     x.save();
@@ -2079,7 +2209,18 @@ const Art = (() => {
     x.save();
     /* 后座位移是地面上的位移，必须走投影，否则炮口焰会飘到炮管外面 */
     x.translate(-Math.cos(rot) * recoil, -Math.sin(rot) * recoil * K);
-    x.drawImage(getTopProj(tw.key, tw.level, rot), TOP_OX, TOP_OY);
+    /* 优先用 Blender 3D 烘焙（真几何 + 真光照 + 5 色平涂）。
+       BakeT 是异步加载的：没就绪时自动回退程序化，就绪后下一帧自动切换，
+       不需要清缓存（烘焙路径直接读图集，不建离屏画布）。 */
+    const bk = (typeof BakeT !== 'undefined' && BakeT.has &&
+                BakeT.has(tw.key, tw.level))
+      ? BakeT.cell(tw.key, tw.level, rot) : null;
+    if (bk) {
+      x.drawImage(bk.img, bk.sx, bk.sy, bk.w, bk.h,
+        -bk.ox, -bk.oy + BASE_CY_TOP, bk.w, bk.h);
+    } else {
+      x.drawImage(getTopProj(tw.key, tw.level, rot), TOP_OX, TOP_OY, TOP_DW, TOP_DW);
+    }
     x.restore();
     x.restore();
   }
@@ -2110,11 +2251,49 @@ const Art = (() => {
   };
 
   const EBUCKETS = 20;        // 朝向分桶（18° 一档）
+  const ESS = 2;              // 烘焙敌人的精灵超采样倍率（见 getEnemyProj）
   const enemyProjCache = {}; let enemyProjCount = 0;
+
+  /* Bake 就绪后自动清空敌人缓存，防止启动时程序化 sprite 占坑 */
+  if (typeof Bake !== 'undefined' && Bake.ready) {
+    Bake.ready().then(() => {
+      for (const k in enemyProjCache) delete enemyProjCache[k];
+      enemyProjCount = 0;
+    });
+  }
 
   function getEnemyProj(kind, frame, ang) {
     let b = Math.round(ang / (Math.PI * 2) * EBUCKETS) % EBUCKETS;
     if (b < 0) b += EBUCKETS;
+
+    /* 烘焙优先：runner / infantry 已用 Blender 正交烘焙。
+       烘焙图没有内部动画，3 个动画帧是同一张，所以 id 里不带 frame ——
+       否则每种载具会白白多占 2/3 的画布。
+
+       ESS：烘焙精灵按 ENEMY_CV 的 2 倍分辨率存放，绘制时再缩一半。
+       内容像素从 ~64px 提到 ~128px，边缘/细节密度才追得上设计稿
+       （实测 64px 时 edge 密度只有设计稿的 1/3）。 */
+    if (typeof Bake !== 'undefined' && Bake.enabled && Bake.hasEnemy(kind)) {
+      const bid = kind + '|b' + b;
+      const cached = enemyProjCache[bid];
+      if (cached && cached._baked) return cached;
+      if (enemyProjCount > 220) { for (const kk in enemyProjCache) delete enemyProjCache[kk]; enemyProjCount = 0; }
+      const atlas = Bake.enemyAtlas;
+      const EM = Bake.enemyMeta;
+      const [ax, ay] = Bake.enemyCellRect(kind, b);
+      const { c, x } = cv(ENEMY_CV * ESS, ENEMY_CV * ESS);
+      const k = ESS;
+      /* 锚点换算：图集格子里记录的 (originX, originY) 是该载具的
+         「地面着地点」，要落到画布的 (EPX, EPY) 上。 */
+      const og = (EM.origin && EM.origin[kind]) || [EM.cellW / 2, EM.cellH];
+      x.drawImage(atlas, ax, ay, EM.cellW, EM.cellH,
+        (EM.epX - og[0]) * k, (EM.epY - og[1]) * k,
+        EM.cellW * k, EM.cellH * k);
+      const o = { n: c, f: null, _baked: true, ess: ESS };
+      enemyProjCache[bid] = o; enemyProjCount++;
+      return o;
+    }
+
     const id = kind + '|' + frame + '|' + b;
     if (enemyProjCache[id]) return enemyProjCache[id];
     if (enemyProjCount > 220) { for (const kk in enemyProjCache) delete enemyProjCache[kk]; enemyProjCount = 0; }
@@ -2127,13 +2306,14 @@ const Art = (() => {
   }
 
   /* 受击白闪：必须在离屏画布上做 source-atop，
-     直接在主画布上做会把整个矩形涂白（主画布处处不透明） */
+     直接在主画布上做会把整个矩形涂白（主画布处处不透明）。
+     尺寸跟着源图走 —— 烘焙精灵是 2 倍分辨率，写死 ENEMY_CV 会把边缘裁掉。 */
   function makeFlash(src) {
-    const { c, x } = cv(ENEMY_CV, ENEMY_CV);
+    const { c, x } = cv(src.width, src.height);
     x.drawImage(src, 0, 0);
     x.globalCompositeOperation = 'source-atop';
     x.fillStyle = '#fff';
-    x.fillRect(0, 0, ENEMY_CV, ENEMY_CV);
+    x.fillRect(0, 0, src.width, src.height);
     return c;
   }
 
@@ -2754,11 +2934,15 @@ const Art = (() => {
       x.globalAlpha = 1;
       x.translate(0, -20 - Math.sin(t * 3 + e.seed) * 2.5);
     }
-    x.drawImage(sp.n, -EPX, -EPY);
+    /* 精灵画布可能是 ENEMY_CV（程序化）或 ENEMY_CV*ESS（烘焙），
+       统一按逻辑尺寸 176×176 画到主画布 —— 烘焙版在这里被降采样，
+       dpr=2 的屏幕正好 1:1，细节不会糊。 */
+    const DW = ENEMY_CV, DH = ENEMY_CV;
+    x.drawImage(sp.n, -EPX, -EPY, DW, DH);
     if (e.hitFlash > 0) {
       if (!sp.f) sp.f = makeFlash(sp.n);
       x.globalAlpha = Math.min(0.6, e.hitFlash * 0.6);
-      x.drawImage(sp.f, -EPX, -EPY);
+      x.drawImage(sp.f, -EPX, -EPY, DW, DH);
       x.globalAlpha = 1;
     }
     x.restore();
@@ -2815,7 +2999,7 @@ const Art = (() => {
     const topY = bb.y0 + TOP_OY;
     const botY = BASE_CY_TOP + BASE_RIM_H + BASE_RY + 4;
     x.translate(0, -(topY + botY) / 2);
-    x.drawImage(getTopProj(key, 0, -0.35), TOP_OX, TOP_OY);
+    x.drawImage(getTopProj(key, 0, -0.35), TOP_OX, TOP_OY, TOP_DW, TOP_DW);
     return c;
   }
 
@@ -2823,7 +3007,7 @@ const Art = (() => {
     cv, ell, ink, roundRect, vgrad, rgrad, mulberry32, rng,
     buildGround, drawDecor, drawTerrain, drawBaseWall,
     drawTower, drawEnemy, towerIcon, getTowerSprite,
-    GROUND_K, projVec, getTopProj, TOP_OX, TOP_OY, BASE_CY_TOP,
+    GROUND_K, projVec, getTopProj, TOP_OX, TOP_OY, TOP_DW, BASE_CY_TOP,
     EPX, EPY, ENEMY_CV,
     bush, tree, rock, cactus, palm, flower, getEnemyProj
   };

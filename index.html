@@ -5,12 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>FIELDRUNNERS · 坚守阵地 复刻版</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='18' r='11' fill='%23d9d5c8' stroke='%232a1a0e' stroke-width='2.5'/%3E%3Cpath d='M16 3l4 9h-8z' fill='%237a5cd6' stroke='%23231a63' stroke-width='2'/%3E%3Cpath d='M5 9l5 7-7 1z' fill='%237a5cd6' stroke='%23231a63' stroke-width='2'/%3E%3Cpath d='M27 9l2 8-7-1z' fill='%237a5cd6' stroke='%23231a63' stroke-width='2'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/style.css?v=20261023d">
 </head>
 <body>
 <div id="stage">
   <div id="app">
-    <canvas id="game" width="1280" height="720"></canvas>
+    <!-- 三层画布：地形 / 3D 单位 / 覆盖层。
+         拆开是因为 WebGL 和 2D 无法在同一张画布上交错绘制。
+         三张都放在 #app 里，跟着同一个 transform:scale 缩放。
+         ⚠️ 定位写成行内样式，不吃 css/style.css：
+            样式表被浏览器缓存成旧版时，#gl3d 会掉回普通文档流被 #game 盖住，
+            表现就是「地图正常、炮塔放上去看不见」。行内样式跟着 index.html 走，不会错位。 -->
+    <canvas id="game" width="1280" height="720"
+            style="position:absolute;inset:0;width:1280px;height:720px;display:block;cursor:crosshair"></canvas>
+    <canvas id="gl3d" width="1280" height="720"
+            style="position:absolute;inset:0;width:1280px;height:720px;display:block;pointer-events:none;background:transparent"></canvas>
+    <canvas id="gameTop" width="1280" height="720"
+            style="position:absolute;inset:0;width:1280px;height:720px;display:block;pointer-events:none"></canvas>
 
     <!-- ================= HUD ================= -->
     <div id="hud">
@@ -180,13 +191,51 @@
   </div>
 </div>
 
-<script src="js/config.js"></script>
-<script src="js/sprites-data.js"></script>
-<script src="js/sprites.js"></script>
-<script src="js/art.js"></script>
-<script src="js/audio.js"></script>
-<script src="js/engine.js"></script>
-<script src="js/ui.js"></script>
-<script src="js/main.js"></script>
+<script src="js/config.js?v=20261023d"></script>
+<script src="js/sprites-data.js?v=20261023d"></script>
+<script src="js/sprites.js?v=20261023d"></script>
+<script src="js/bake-data.js?v=20261023d"></script>
+<script src="js/bake-enemy-data.js?v=20261023d"></script>
+
+<script src="js/bake-tower-gatling.js?v=20261023d"></script>
+<script src="js/bake-tower-mortar.js?v=20261023d"></script>
+<script src="js/bake-tower-missile.js?v=20261023d"></script>
+<script src="js/bake-tower-tesla.js?v=20261023d"></script>
+<script src="js/bake-tower-flame.js?v=20261023d"></script>
+<script src="js/bake-tower-goo.js?v=20261023d"></script>
+<script src="js/bake-tower.js?v=20261023d"></script>
+<script src="js/bake.js?v=20261023d"></script>
+<script src="js/art.js?v=20261023d"></script>
+<script src="js/audio.js?v=20261023d"></script>
+<script src="js/engine.js?v=20261023d"></script>
+<script src="js/ui.js?v=20261023d"></script>
+<script type="importmap">
+{ "imports": { "three": "./js/vendor/three.module.js" } }
+</script>
+<script type="module" src="js/main3d.js?v=20261023d"></script>
+
+<!-- ============================================================
+     file:// 兜底
+
+     type="module" 在 file:// 协议下会被 CORS 直接拦掉（模块脚本不允许跨源），
+     主循环根本不会启动 —— 表现是地图/HUD 全死、金币永远是 0。
+     这里延时确认一次：3D 入口没起来就用 main.js（单画布 2D 渲染）顶上，
+     这样「双击 index.html 就能玩」依然成立，只是没有 3D 单位。
+     ============================================================ -->
+<script>
+(function () {
+  setTimeout(function () {
+    if (window.__boot3d || window.__boot2d) return;
+    window.__boot2d = true;
+    var s = document.createElement('script');
+    s.src = 'js/main.js?v=20261023d';
+    s.onload = function () {
+      console.log('[boot] ES module 未启动（多半是 file:// 打开），已回退 2D 单画布渲染。' +
+                  '想要 3D 单位请用本地 http 服务器打开。');
+    };
+    document.body.appendChild(s);
+  }, 1200);
+})();
+</script>
 </body>
 </html>

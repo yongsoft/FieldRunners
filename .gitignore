@@ -10,3 +10,12 @@
 # logs / temp
 *.log
 npm-debug.log*
+
+# Python 烘焙管线：只提交脚本，不提交产物与虚拟环境
+__pycache__/
+*.py[cod]
+tools/**/venv/
+tools/**/.venv/
+
+# 烘焙中间产物（逐朝向 PNG，共 60MB+，可用 tools/bake/*/run.py 重新生成）
+tools/**/out/
