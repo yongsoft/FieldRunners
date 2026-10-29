@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>FIELDRUNNERS · 坚守阵地 复刻版</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='18' r='11' fill='%23d9d5c8' stroke='%232a1a0e' stroke-width='2.5'/%3E%3Cpath d='M16 3l4 9h-8z' fill='%237a5cd6' stroke='%23231a63' stroke-width='2'/%3E%3Cpath d='M5 9l5 7-7 1z' fill='%237a5cd6' stroke='%23231a63' stroke-width='2'/%3E%3Cpath d='M27 9l2 8-7-1z' fill='%237a5cd6' stroke='%23231a63' stroke-width='2'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="css/style.css?v=20261023d">
+<link rel="stylesheet" href="css/style.css?v=20261029a">
 </head>
 <body>
 <div id="stage">
@@ -18,8 +18,9 @@
             表现就是「地图正常、炮塔放上去看不见」。行内样式跟着 index.html 走，不会错位。 -->
     <canvas id="game" width="1280" height="720"
             style="position:absolute;inset:0;width:1280px;height:720px;display:block;cursor:crosshair"></canvas>
-    <canvas id="gl3d" width="1280" height="720"
-            style="position:absolute;inset:0;width:1280px;height:720px;display:block;pointer-events:none;background:transparent"></canvas>
+    <!-- 3D 层只覆盖场地 576px；底部 144px 的 HUD 木栏仍由 2D 画布绘制 -->
+    <canvas id="gl3d" width="1280" height="576"
+            style="position:absolute;left:0;top:0;width:1280px;height:576px;display:block;pointer-events:none;background:transparent"></canvas>
     <canvas id="gameTop" width="1280" height="720"
             style="position:absolute;inset:0;width:1280px;height:720px;display:block;pointer-events:none"></canvas>
 
@@ -191,28 +192,28 @@
   </div>
 </div>
 
-<script src="js/config.js?v=20261023d"></script>
-<script src="js/sprites-data.js?v=20261023d"></script>
-<script src="js/sprites.js?v=20261023d"></script>
-<script src="js/bake-data.js?v=20261023d"></script>
-<script src="js/bake-enemy-data.js?v=20261023d"></script>
+<script src="js/config.js?v=20261029a"></script>
+<script src="js/sprites-data.js?v=20261029a"></script>
+<script src="js/sprites.js?v=20261029a"></script>
+<script src="js/bake-data.js?v=20261029a"></script>
+<script src="js/bake-enemy-data.js?v=20261029a"></script>
 
-<script src="js/bake-tower-gatling.js?v=20261023d"></script>
-<script src="js/bake-tower-mortar.js?v=20261023d"></script>
-<script src="js/bake-tower-missile.js?v=20261023d"></script>
-<script src="js/bake-tower-tesla.js?v=20261023d"></script>
-<script src="js/bake-tower-flame.js?v=20261023d"></script>
-<script src="js/bake-tower-goo.js?v=20261023d"></script>
-<script src="js/bake-tower.js?v=20261023d"></script>
-<script src="js/bake.js?v=20261023d"></script>
-<script src="js/art.js?v=20261023d"></script>
-<script src="js/audio.js?v=20261023d"></script>
-<script src="js/engine.js?v=20261023d"></script>
-<script src="js/ui.js?v=20261023d"></script>
+<script src="js/bake-tower-gatling.js?v=20261029a"></script>
+<script src="js/bake-tower-mortar.js?v=20261029a"></script>
+<script src="js/bake-tower-missile.js?v=20261029a"></script>
+<script src="js/bake-tower-tesla.js?v=20261029a"></script>
+<script src="js/bake-tower-flame.js?v=20261029a"></script>
+<script src="js/bake-tower-goo.js?v=20261029a"></script>
+<script src="js/bake-tower.js?v=20261029a"></script>
+<script src="js/bake.js?v=20261029a"></script>
+<script src="js/art.js?v=20261029a"></script>
+<script src="js/audio.js?v=20261029a"></script>
+<script src="js/engine.js?v=20261029a"></script>
+<script src="js/ui.js?v=20261029a"></script>
 <script type="importmap">
 { "imports": { "three": "./js/vendor/three.module.js" } }
 </script>
-<script type="module" src="js/main3d.js?v=20261023d"></script>
+<script type="module" src="js/main3d.js?v=20261029a"></script>
 
 <!-- ============================================================
      file:// 兜底
@@ -228,7 +229,7 @@
     if (window.__boot3d || window.__boot2d) return;
     window.__boot2d = true;
     var s = document.createElement('script');
-    s.src = 'js/main.js?v=20261023d';
+    s.src = 'js/main.js?v=20261029a';
     s.onload = function () {
       console.log('[boot] ES module 未启动（多半是 file:// 打开），已回退 2D 单画布渲染。' +
                   '想要 3D 单位请用本地 http 服务器打开。');

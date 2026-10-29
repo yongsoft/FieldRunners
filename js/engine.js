@@ -1007,6 +1007,18 @@ class Game {
      3D 单位夹在 0 和 1 之间由 WebGL 叠层渲染。 */
   render(x, t, pass) {
     const P = pass === undefined ? 2 : pass;
+
+    /* pass 4 = 只画底部 HUD 木栏。
+       3D 模式下整块场地由 WebGL 铺满，2D 层只剩这条 144px 的木栏需要画，
+       省掉一次 1280×720 的全画布 blit。 */
+    if (P === 4) {
+      x.clearRect(0, 0, CANVAS_W, CANVAS_H);
+      x.drawImage(this.groundWithDecor,
+        0, FIELD_H, FIELD_W, APRON_H,
+        0, FIELD_H, FIELD_W, APRON_H);
+      return;
+    }
+
     x.save();
     x.translate(this.shakeX, this.shakeY);
 
@@ -1062,8 +1074,10 @@ class Game {
       Art.roundRect(x, bx, by, w * f, h, 2.2); x.fill();
     }
 
+    /* 3D 模式下，光束/抛射物/粒子都由 WebGL 画（真正的立体光条），
+       2D 层只留血条与飘字。fx3d 由 main3d 每帧设置。 */
     // 光束
-    for (const b of this.beams) {
+    if (!this.fx3d) for (const b of this.beams) {
       const a = b.life / b.max;
       x.save(); x.globalAlpha = a;
       // 每 1/24 秒换一次抖动种子 -> 闪电闪烁感
@@ -1096,7 +1110,7 @@ class Game {
     }
 
     // 抛射物
-    for (const p of this.projectiles) {
+    if (!this.fx3d) for (const p of this.projectiles) {
       if (p.type === 'shell') {
         const yy = p.y - p.h;
         const alt = clamp(p.h / (p.maxH || 96), 0, 1);
@@ -1193,7 +1207,7 @@ class Game {
     }
 
     // 粒子
-    for (const p of this.particles) {
+    if (!this.fx3d) for (const p of this.particles) {
       const a = clamp(p.life / p.max, 0, 1);
       if (p.type === 'ring') {
         x.save(); x.globalAlpha = a * 0.9;

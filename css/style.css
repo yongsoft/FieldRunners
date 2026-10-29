@@ -28,6 +28,8 @@ body{font-family:var(--font-cn);user-select:none;}
    gl3d 用 WebGL 画单位，gameTop 画血条与弹道 ——
    后两层必须 pointer-events:none，否则会吃掉 #game 的鼠标事件。 */
 #gl3d,#gameTop{position:absolute;inset:0;width:1280px;height:720px;display:block;pointer-events:none;}
+/* 3D 只铺场地 576px；底部 144px 的 HUD 木栏仍由 #game 绘制 */
+#gl3d{height:576px;}
 #gl3d{background:transparent;}
 #hud{position:absolute;inset:0;pointer-events:none;transition:opacity .25s;}
 #hud.menu-open{opacity:0;}

@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FIELDRUNNERS · 3D 单位查看器</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0b0e12; }
+  body {
+    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+    color: #dfe7ef; user-select: none;
+  }
+  #c { position: absolute; inset: 0; display: block; cursor: grab; }
+  #c:active { cursor: grabbing; }
+
+  .panel {
+    position: absolute; background: rgba(16, 21, 28, .82);
+    border: 1px solid rgba(120, 150, 180, .22); border-radius: 12px;
+    backdrop-filter: blur(14px); padding: 14px 16px;
+  }
+  #left { left: 18px; top: 18px; width: 232px; }
+  #left h1 {
+    font-size: 12px; letter-spacing: .18em; color: #6f8598;
+    font-weight: 700; margin-bottom: 10px;
+  }
+  .group { margin-bottom: 12px; }
+  .group-title {
+    font-size: 10.5px; letter-spacing: .14em; color: #55697c;
+    margin-bottom: 5px; font-weight: 700;
+  }
+  .item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 9px; border-radius: 7px; cursor: pointer;
+    font-size: 12.5px; color: #9fb2c4; transition: .12s;
+  }
+  .item:hover { background: rgba(120, 170, 220, .10); color: #d6e4f0; }
+  .item.on {
+    background: linear-gradient(90deg, rgba(122, 210, 255, .18), rgba(122, 210, 255, .04));
+    color: #8fe0ff; box-shadow: inset 2px 0 0 #4fc3f7;
+  }
+  .item .dot {
+    width: 6px; height: 6px; border-radius: 50%; background: #3d5566; flex: none;
+  }
+  .item.on .dot { background: #4fc3f7; box-shadow: 0 0 8px #4fc3f7; }
+
+  #right { right: 18px; top: 18px; width: 218px; text-align: right; }
+  #name { font-size: 19px; font-weight: 800; color: #f2f7fb; letter-spacing: .04em; }
+  #tag { font-size: 11.5px; color: #7b90a3; margin-top: 3px; letter-spacing: .06em; }
+  #tiers { display: flex; gap: 6px; margin-top: 12px; justify-content: flex-end; }
+  #tiers button {
+    appearance: none; cursor: pointer; padding: 6px 11px; border-radius: 7px;
+    border: 1px solid rgba(120, 160, 200, .26); background: rgba(255, 255, 255, .04);
+    color: #93a8ba; font: 700 11px/1 inherit; letter-spacing: .1em; transition: .12s;
+  }
+  #tiers button:hover { color: #d6e8f5; border-color: rgba(120, 190, 240, .5); }
+  #tiers button.on {
+    background: linear-gradient(180deg, rgba(79, 195, 247, .26), rgba(79, 195, 247, .08));
+    border-color: rgba(79, 195, 247, .7); color: #a9e6ff;
+  }
+  #stats { margin-top: 12px; font-size: 11.5px; color: #6d8398; line-height: 1.85; }
+  #stats b { color: #b9cddd; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  #hint {
+    position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
+    font-size: 11.5px; color: #55697c; letter-spacing: .08em; white-space: nowrap;
+  }
+  #loading {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    background: #0b0e12; font-size: 12px; letter-spacing: .2em; color: #4b6478;
+    transition: opacity .4s; z-index: 10;
+  }
+  #loading.gone { opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="panel" id="left">
+  <h1>FIELDRUNNERS · UNIT LAB</h1>
+  <div class="group"><div class="group-title">防御武器</div><div id="list-t"></div></div>
+  <div class="group"><div class="group-title">敌军载具</div><div id="list-e"></div></div>
+</div>
+
+<div class="panel" id="right">
+  <div id="name">—</div>
+  <div id="tag">—</div>
+  <div id="tiers"></div>
+  <div id="stats"></div>
+</div>
+
+<div id="hint">拖动旋转 · 滚轮缩放 · ← → 切换单位 · 1 2 3 切等级 · 空格 自动旋转</div>
+<div id="loading">LOADING</div>
+
+<script type="importmap">
+{ "imports": { "three": "./js/vendor/three.module.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { Post } from './js/r3d/core.js';
+import { envCanvas } from './js/r3d/tex.js';
+import { buildTower, towerMaterials } from './js/r3d/towers.js';
+import { buildEnemy, enemyMaterials } from './js/r3d/vehicles.js';
+
+/* ---------------------------------------------------------------- 单位目录 */
+
+const TOWERS = [
+  { key: 'gatling', name: 'GATLING', tag: '转管机枪 · 高射速单体' },
+  { key: 'mortar', name: 'MORTAR', tag: '迫击炮 · 曲射大溅射' },
+  { key: 'missile', name: 'MISSILE', tag: '导弹发射架 · 追踪' },
+  { key: 'tesla', name: 'TESLA', tag: '电磁线圈 · 连锁闪电' },
+  { key: 'flame', name: 'FLAME', tag: '火焰喷射 · 近距秒伤' },
+  { key: 'goo', name: 'GOO', tag: '胶水炮 · 大幅减速' },
+];
+const ENEMIES = [
+  { key: 'runner', name: 'RUNNER', tag: '摩托侦察兵' },
+  { key: 'infantry', name: 'INFANTRY', tag: '吉普步兵' },
+  { key: 'commando', name: 'COMMANDO', tag: '主战坦克' },
+  { key: 'truck', name: 'TRUCK', tag: '装甲补给车' },
+  { key: 'heli', name: 'GUNSHIP', tag: '武装直升机' },
+  { key: 'bomber', name: 'BOMBER', tag: '轰炸机' },
+  { key: 'boss', name: 'OVERLORD', tag: '超重型陆战堡' },
+];
+
+/* ---------------------------------------------------------------- 渲染器 */
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+renderer.toneMapping = THREE.NoToneMapping;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x0b1016, 320, 720);
+
+const camera = new THREE.PerspectiveCamera(34, 1, 1, 4000);
+const orbit = { theta: 0.72, phi: 1.16, radius: 168, target: new THREE.Vector3(0, 34, 0) };
+
+function placeCamera() {
+  const s = Math.sin(orbit.phi), c = Math.cos(orbit.phi);
+  camera.position.set(
+    orbit.target.x + orbit.radius * s * Math.cos(orbit.theta),
+    orbit.target.y + orbit.radius * c,
+    orbit.target.z + orbit.radius * s * Math.sin(orbit.theta),
+  );
+  camera.lookAt(orbit.target);
+  camera.updateMatrixWorld();
+}
+
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  post.setSize(w, h);
+  placeCamera();
+}
+
+/* ---- 环境贴图 ---- */
+const pmrem = new THREE.PMREMGenerator(renderer);
+pmrem.compileEquirectangularShader();
+const ec = new THREE.CanvasTexture(envCanvas());
+ec.mapping = THREE.EquirectangularReflectionMapping;
+ec.colorSpace = THREE.SRGBColorSpace;
+const envTex = pmrem.fromEquirectangular(ec).texture;
+ec.dispose();
+scene.environment = envTex;
+const ctx = { envTex, scene };
+
+/* ---- 灯光：和游戏内一致的三灯 ---- */
+const key = new THREE.DirectionalLight(0xfff1d4, 4.4);
+key.position.set(-140, 220, 150);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.near = 1;
+key.shadow.camera.far = 900;
+key.shadow.camera.left = -140; key.shadow.camera.right = 140;
+key.shadow.camera.top = 140; key.shadow.camera.bottom = -140;
+key.shadow.bias = -0.0005;
+key.shadow.normalBias = 0.5;
+scene.add(key, key.target);
+
+const fill = new THREE.DirectionalLight(0x9dc2ea, 0.45);
+fill.position.set(170, 90, -120);
+scene.add(fill);
+const rim = new THREE.DirectionalLight(0xdff0ff, 1.1);
+rim.position.set(-40, 110, -230);
+scene.add(rim);
+scene.add(new THREE.HemisphereLight(0xa9c8dd, 0x1a1a14, 0.34));
+
+/* ---- 转台 ---- */
+const disc = new THREE.Mesh(
+  new THREE.CylinderGeometry(78, 82, 5, 64),
+  new THREE.MeshStandardMaterial({
+    color: '#20262e', metalness: 0.35, roughness: 0.55,
+    envMap: envTex, envMapIntensity: 0.7,
+  }),
+);
+disc.position.y = -2.5;
+disc.receiveShadow = true;
+scene.add(disc);
+
+const gridMat = new THREE.MeshBasicMaterial({
+  color: 0x2a3d4d, transparent: true, opacity: 0.5, side: THREE.DoubleSide,
+});
+for (let i = 1; i <= 3; i++) {
+  const r = 24 + i * 20;
+  const ring = new THREE.Mesh(new THREE.RingGeometry(r, r + 0.35, 96), gridMat);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.2;
+  scene.add(ring);
+}
+
+/* ---- 后期 ---- */
+const post = new Post(renderer, innerWidth, innerHeight);
+post.mComp.uniforms.uBloom.value = 1.15;
+post.mComp.uniforms.uExposure.value = 1.0;
+post.mComp.uniforms.uVignette.value = 0.42;
+
+/* ---------------------------------------------------------------- 单位管理 */
+
+const towerMat = towerMaterials(ctx);
+const enemyMat = enemyMaterials(ctx);
+
+let curIdx = 0;
+let curLevel = 2;
+let root = null;
+let all = [];
+let spinParts = [];
+let clock = 0;
+
+function disposeRoot() {
+  if (!root) return;
+  scene.remove(root);
+  root = null;
+  spinParts = [];
+}
+
+function show(idx, lv) {
+  curIdx = (idx + all.length) % all.length;
+  const item = all[curIdx];
+  if (item.kind === 'tower') curLevel = Math.max(0, Math.min(2, lv));
+  disposeRoot();
+
+  if (item.kind === 'tower') {
+    const built = buildTower(item.key, curLevel, ctx, towerMat);
+    root = built.root;
+    const spin = root.getObjectByName('spin');
+    if (spin) spinParts.push({ obj: spin, speed: 5.5 });
+    const radar = root.getObjectByName('radar');
+    if (radar) spinParts.push({ obj: radar, speed: 0.9 });
+  } else {
+    const def = buildEnemy(item.key, ctx, enemyMat);
+    root = new THREE.Group();
+    const meshes = [];
+    for (const p of def.parts) {
+      const m = new THREE.Mesh(p.geo, p.mat);
+      m.castShadow = true; m.receiveShadow = true;
+      root.add(m);
+      meshes.push(m);
+    }
+    /* 静止姿态也要有车轮：单独摆一圈静态轮胎 */
+    for (const w of def.wheels) {
+      const g = new THREE.CylinderGeometry(w.r, w.r, w.w, 14);
+      g.rotateZ(Math.PI / 2);
+      const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({
+        color: '#1b1d20', metalness: 0.02, roughness: 0.94, envMap: envTex,
+      }));
+      m.position.set(w.x, w.y, w.z);
+      m.castShadow = true;
+      root.add(m);
+      /* 轮毂 */
+      const hg = new THREE.CylinderGeometry(w.r * 0.58, w.r * 0.58, w.w * 1.06, 12);
+      hg.rotateZ(Math.PI / 2);
+      const hm = new THREE.Mesh(hg, new THREE.MeshStandardMaterial({
+        color: '#5b636b', metalness: 0.85, roughness: 0.42, envMap: envTex,
+      }));
+      hm.position.copy(m.position);
+      root.add(hm);
+    }
+    /* 旋翼 */
+    def.rotors.forEach((r) => {
+      const grp = new THREE.Group();
+      const mat = new THREE.MeshStandardMaterial({
+        color: '#22262a', metalness: 0.4, roughness: 0.55, envMap: envTex,
+        transparent: true, opacity: 0.8,
+      });
+      for (let i = 0; i < r.n; i++) {
+        const b = new THREE.Mesh(new THREE.BoxGeometry(r.r, r.r * 0.03, r.r * 0.10), mat);
+        b.position.set(r.r / 2, 0, 0);
+        b.rotation.y = (i / r.n) * Math.PI * 2;
+        grp.add(b);
+      }
+      grp.position.set(r.x, r.y, r.z);
+      if (r.axis === 'z') grp.rotation.y = Math.PI / 2;
+      root.add(grp);
+      spinParts.push({ obj: grp, speed: r.axis === 'z' ? -26 : 22, axis: r.axis === 'z' ? 'y' : 'y' });
+    });
+
+    /* 让相机对准单位中心 */
+    const box = new THREE.Box3().setFromObject(root);
+    orbit.target.y = (box.min.y + box.max.y) / 2;
+  }
+
+  root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  scene.add(root);
+
+  if (item.kind === 'tower') orbit.target.y = 34;
+
+  /* 统计 */
+  let meshes = 0, tris = 0;
+  root.traverse(o => {
+    if (!o.isMesh) return;
+    meshes++;
+    tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3;
+  });
+  document.getElementById('name').textContent = item.name;
+  document.getElementById('tag').textContent = item.tag;
+  document.getElementById('stats').innerHTML =
+    `网格 <b>${meshes}</b><br>三角面 <b>${Math.round(tris).toLocaleString()}</b><br>` +
+    `绘制 <b>${meshes}</b>`;
+
+  /* 等级按钮 */
+  const tiers = document.getElementById('tiers');
+  tiers.innerHTML = '';
+  if (item.kind === 'tower') {
+    ['MK-I', 'MK-II', 'MK-III'].forEach((t, i) => {
+      const b = document.createElement('button');
+      b.textContent = t;
+      if (i === curLevel) b.classList.add('on');
+      b.onclick = () => show(curIdx, i);
+      tiers.appendChild(b);
+    });
+  } else {
+    const s = document.createElement('span');
+    s.style.cssText = 'font-size:11px;color:#55697c;letter-spacing:.1em';
+    s.textContent = item.air ? 'AIR UNIT' : 'GROUND UNIT';
+    tiers.appendChild(s);
+  }
+
+  /* 目录高亮 */
+  document.querySelectorAll('.item').forEach((el) => {
+    el.classList.toggle('on', +el.dataset.idx === curIdx);
+  });
+}
+
+/* ---------------------------------------------------------------- 目录 DOM */
+
+function buildList() {
+  const lt = document.getElementById('list-t');
+  const le = document.getElementById('list-e');
+  all = [];
+  TOWERS.forEach((t) => all.push({ ...t, kind: 'tower' }));
+  ENEMIES.forEach((e) => all.push({ ...e, kind: 'enemy' }));
+  all.forEach((item, idx) => {
+    const el = document.createElement('div');
+    el.className = 'item';
+    el.dataset.idx = idx;
+    el.innerHTML = `<span class="dot"></span><span>${item.name}</span>`;
+    el.onclick = () => show(idx, curLevel);
+    (item.kind === 'tower' ? lt : le).appendChild(el);
+  });
+}
+
+/* ---------------------------------------------------------------- 交互 */
+
+let drag = false, lx = 0, ly = 0, autoSpin = true;
+
+canvas.addEventListener('pointerdown', (e) => {
+  drag = true; lx = e.clientX; ly = e.clientY;
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointerup', (e) => {
+  drag = false;
+  try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  autoSpin = false;
+  orbit.theta -= (e.clientX - lx) * 0.008;
+  orbit.phi = Math.max(0.30, Math.min(1.52, orbit.phi - (e.clientY - ly) * 0.006));
+  lx = e.clientX; ly = e.clientY;
+  placeCamera();
+});
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  orbit.radius = Math.max(60, Math.min(420, orbit.radius * (1 + Math.sign(e.deltaY) * 0.09)));
+  placeCamera();
+}, { passive: false });
+
+addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight') show(curIdx + 1, curLevel);
+  else if (e.key === 'ArrowLeft') show(curIdx - 1, curLevel);
+  else if (e.key === '1') show(curIdx, 0);
+  else if (e.key === '2') show(curIdx, 1);
+  else if (e.key === '3') show(curIdx, 2);
+  else if (e.code === 'Space') { e.preventDefault(); autoSpin = !autoSpin; }
+});
+
+addEventListener('resize', resize);
+
+/* ---------------------------------------------------------------- 主循环 */
+
+buildList();
+resize();
+show(0, 2);
+placeCamera();
+
+let lastT = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - lastT) / 1000);
+  lastT = now;
+  clock += dt;
+
+  if (autoSpin) {
+    orbit.theta += dt * 0.22;
+    placeCamera();
+  }
+  for (const s of spinParts) {
+    s.obj.rotation[s.axis || 'y'] += dt * s.speed;
+  }
+  if (root) root.position.y = Math.sin(clock * 1.1) * 0.6;
+
+  post.render(scene, camera, clock);
+  requestAnimationFrame(frame);
+}
+
+requestAnimationFrame(() => {
+  document.getElementById('loading').classList.add('gone');
+  requestAnimationFrame(frame);
+});
+
+window.__viewer = { show, orbit, scene, get root() { return root; } };
+</script>
+</body>
+</html>
